@@ -1,0 +1,737 @@
+
+#install.packages("gplots")
+#install.packages("plotrix")
+#install.packages("googlevis")
+#install.packages("grDevices")
+#library(shiny)
+#library(gplots)
+#library(plotrix)
+#library(googleVis)
+#library(grDevices)
+library(d3heatmap)
+library(googleVis)
+library(scales)
+library(shiny)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+ui<-navbarPage("Navigate",
+                   tabPanel("Focus",
+                     sidebarLayout(
+                       sidebarPanel(h3("Focus on Specific categories"),
+                                    selectInput("variable3", "Select a feature to analyze",choices=colnames(varcatego3)),
+                                    selectInput("choose", "Select one model to analyze",choices=choic,selected=choic[12]),
+                                    selectizeInput("choose2", "Select several models for comparison ",choices=choic,multiple=T,size=17,selected=choic[13:18]),
+                                    sliderInput("n", "select year", min=2010, max=2014, value=2010,animate = T),
+                                    checkboxInput("dynamic", "Display Pie for the first model"),
+                                    conditionalPanel(
+                                      condition = "input.dynamic == true",
+                                      htmlOutput("pie", height="200px")
+                                    )
+                       ),
+                       mainPanel(
+                         conditionalPanel("input.variable3=='Price'",
+                                          plotOutput("hist4")),
+                         conditionalPanel("input.variable3=='income'",
+                                          plotOutput("hist5")),
+                         plotOutput("hist1"),
+                         d3heatmapOutput("heat"),
+                         plotOutput("hist3")
+                       )             
+                     )
+                          ),
+#############################################  Means           
+               tabPanel("Means",fluidRow(hr(),
+                                      column(4,
+                                              selectInput("variables2", "Choisir une variable",choices=colnames(varcatego)),
+                                              selectInput("tripar", "comparer les moyennes des différents sous groupes :", 
+                                                          choices=tripar),
+                                              offset=0),
+
+                                             
+                                      column(4,
+                                             sliderInput(inputId = "calibrate",
+                                                         label = "calibrate the number of features to be considered",
+                                                         min=1,
+                                                         max=40,value=30,animate=FALSE),
+                                             checkboxInput(inputId = "optpie",label = "View second type of chart",value = T),
+                                             checkboxInput(inputId = "viewtable",label = "View the corresponding data tableble",value = T),
+                                             helpText("Data from the Profile evolution datasets.
+                                                      Ordered By JDA"),
+                                             offset = 1),
+                                      
+                                      column(12,
+                                             plotOutput("barplot2"),
+                                             offset=0),
+                                      column(12,
+                                             tableOutput("tritable"),
+                                             offset=0),
+                                      column(12,
+                                             plotOutput("addpie1"),
+                                             offset=0),
+                                      column(12,
+                                             plotOutput("addpie2"),
+                                             offset=0)
+                                )
+                        ),
+               tabPanel("Data table",
+                        fluidRow(h3("Customized research"),
+                                 hr(),
+                                 h5("Use research boxes at the bottom of each column"),
+                                 hr(),
+                                 column(12,
+                                        dataTableOutput('table')
+                                 )
+                        )
+               ),
+#########################################################     Decision Tree
+               tabPanel("Decision tree",fluidRow(hr(),
+                                            titlePanel("Generate Decision Tree "), # Give the page a title
+                                            sidebarLayout(      
+                                              
+                                              # Define the sidebar with one input
+                                              sidebarPanel(
+                                                selectInput("y", "select a category to analyze:", 
+                                                            choices=choices),
+                                                numericInput("type","select a tree type (type 3 for complex trees)",min=0,max=4,value=0),
+                                                checkboxGroupInput("var","Check the variable used to generate the tree (The category variable need to be checked)",choices=colnames(dfinal),selected = colnames(dfinal)[c(1:3,7)]),
+                                                sliderInput("size","Select the level of complexity (cp) for the Tree",min=0,00005,max=0.3,step=0.002,value=0.05),
+                                                radioButtons("radio","select Extra to display the category split for each node",choices = radio,selected = "No Extra"),
+                                                actionButton("image",label = "Display natural variable importance"),
+                                                hr(),
+                                                actionButton("Help",label = "Display help"),
+                                                hr(),
+                                                conditionalPanel(
+                                                  condition = "input.Help == true",
+                                                  helpText("The first graph helps to prune the tree: it plots the relative error for a given complexity level 
+                                                           and the axis at the top is the corresponding tree size. Use the slider to select the complexity of the tree.
+                                                           A good choice for pruning is often the leftmost value for which the mean lies below the horizontal line.
+                                                           If you want to display a complex tree, select plot type 3, and No Extra.
+                                                           You can chose the variables you like to generate the tree, but the category variable must be checked.
+                                                           The table at the bottom displays the final classification made by the tree,
+                                                           the correctly classed observations are in the table diagonal and the corresponding error rate,
+                                                           Natural variable importance chart shows the explanatory power of each variable : the higher in the list, the more
+                                                           impact on the tree structre.
+                                                           Note : all variable are in pourcentage in the database except for age income and Price paid.      
+                                                           Data from the Profile evolution datasets.")
+                                                  )
+                                                
+                                                  ),
+                                              mainPanel(
+                                                h4("Tree"),
+                                                plotOutput("tree"),# a changer
+                                                h4("Size vs Error"),
+                                                plotOutput("cp"),
+                                                h4("Classification Accuracy"),
+                                                tableOutput("erreur"),
+                                                h4("Natural variable importance"),
+                                                plotOutput("natural")
+                                                
+                                              ))
+               )),
+##################################################################    CORRELATION
+               tabPanel("Correlation",
+                        titlePanel("Visualize correlations"), # Give the page a title
+                        sidebarLayout(      
+                          # Define the sidebar with one input
+                          sidebarPanel(
+                            selectInput("method2", "method",choices=method),
+                            checkboxGroupInput("vars","select var",colnames(dfinal)[-c(1:3)],selected=colnames(dfinal)[6:8]),
+                            sliderInput("slider","select nb of breaks", min=5,max=30,value=10),
+                            
+                            hr(),
+                            helpText("Data from the Profile evolution datasets.")
+                          ),
+                          mainPanel(
+                            plotOutput("his"),
+                            plotOutput("plot"),
+                            plotOutput("plot2")
+                          ))
+                        )
+                                       
+               )
+       
+
+                
+              
+server<-function(input,output){ 
+  
+  
+  output$pie<-renderGvis({
+    h<-grep(paste(input$choose,input$n,sep="_"),demand[,1],value=F)
+    pie<-data.frame(var=colnames(demand)[varcatego3[1,input$variable3]:varcatego3[2,input$variable3]],X1=t(demand[h,varcatego3[1,input$variable3]:varcatego3[2,input$variable3]]))
+    row.names(pie)<-NULL
+    gvisPieChart(pie,options=list(title=paste("Repartion for",demand[h,1])))
+    
+  })
+  
+  output$hist1<-renderPlot({
+    
+    test<-c(input$choose2)
+    test1<-grep(paste(test[1],input$n,sep="_"),demand[,1],value=F)
+    test2<-grep(paste(test[2],input$n,sep="_"),demand[,1],value=F)
+    test3<-grep(paste(test[3],input$n,sep="_"),demand[,1],value=F)
+    test4<-grep(paste(test[4],input$n,sep="_"),demand[,1],value=F)
+    test5<-grep(paste(test[5],input$n,sep="_"),demand[,1],value=F)
+    test6<-grep(paste(test[6],input$n,sep="_"),demand[,1],value=F)
+    test7<-grep(paste(test[7],input$n,sep="_"),demand[,1],value=F)
+    test8<-grep(paste(test[8],input$n,sep="_"),demand[,1],value=F)
+    test9<-grep(paste(test[9],input$n,sep="_"),demand[,1],value=F)
+    test10<-grep(paste(test[10],input$n,sep="_"),demand[,1],value=F)
+    h<-grep(paste(input$choose,input$n,sep="_"),demand[,1],value=F)
+    te<-c(h,test1,test2,test3,test4,test5,test6,test7,test8,test9,test10)
+    row.names(demand)<-demand[,1]
+    par(mar=c(7,4.1,4.1,2.1))
+    col<-rainbow(length(colnames(demand)[varcatego3[1,input$variable3]:varcatego3[2,input$variable3]]))
+    bar<-barplot(data.matrix(t(demand[te,varcatego3[1,input$variable3]:varcatego3[2,input$variable3]])),beside = F,
+                 col=col,las=1.5)
+    z<-0
+    for (i in col){
+      text(bar,round(colSums(t(demand[te,(varcatego3[1,input$variable3]:varcatego3[1,input$variable3]):(varcatego3[1,input$variable3]:varcatego3[1,input$variable3]+z)]),na.rm=T),digits = 3),
+           paste(round((t(demand[te,varcatego3[1,input$variable3]:varcatego3[1,input$variable3]+z])),digits = 1),"%"),pos=1,col="black")
+      z<-z+1
+      legend("topright",colnames(demand)[varcatego3[1,input$variable3]:varcatego3[2,input$variable3]],fill=col)
+      
+    }
+    
+  })
+  
+  output$heat<-renderD3heatmap({
+    test<-c(input$choose2)
+    test1<-grep(paste(test[1],input$n,sep="_"),demand[,1],value=F)
+    test2<-grep(paste(test[2],input$n,sep="_"),demand[,1],value=F)
+    test3<-grep(paste(test[3],input$n,sep="_"),demand[,1],value=F)
+    test4<-grep(paste(test[4],input$n,sep="_"),demand[,1],value=F)
+    test5<-grep(paste(test[5],input$n,sep="_"),demand[,1],value=F)
+    test6<-grep(paste(test[6],input$n,sep="_"),demand[,1],value=F)
+    test7<-grep(paste(test[7],input$n,sep="_"),demand[,1],value=F)
+    test8<-grep(paste(test[8],input$n,sep="_"),demand[,1],value=F)
+    test9<-grep(paste(test[9],input$n,sep="_"),demand[,1],value=F)
+    test10<-grep(paste(test[10],input$n,sep="_"),demand[,1],value=F)
+    h<-grep(paste(input$choose,input$n,sep="_"),demand[,1],value=F)
+    te<-c(h,test1,test2,test3,test4,test5,test6,test7,test8,test9,test10)  
+    
+    heat<-demand[te,varcatego3[1,input$variable3]:varcatego3[2,input$variable3]]
+    row.names(heat)<-demand[te,1]
+    heat[te,order(heat[h,],decreasing = T)]
+    
+    mi <- min(heat, na.rm = TRUE)
+    ma <- max(heat, na.rm = TRUE)
+    
+    pal<-"BuPu"
+    breaks<-c(mi,3,5,10,15,25,33,40,ma)
+    colorFunc <- col_bin(pal,domain=c(0,1), bins = 30 ,na.color = "red")
+    d3heatmap(heat, scale = "row", colors = colorFunc,
+              na.rm=T,dendrogram="row")  })
+  
+  
+  output$hist3<-renderPlot(
+    hist(rnorm(input$n))
+  )
+  output$hist4<-renderPlot({
+    test<-c(input$choose2)
+    test1<-grep(paste(test[1],input$n,sep="_"),demand[,1],value=F)
+    test2<-grep(paste(test[2],input$n,sep="_"),demand[,1],value=F)
+    test3<-grep(paste(test[3],input$n,sep="_"),demand[,1],value=F)
+    test4<-grep(paste(test[4],input$n,sep="_"),demand[,1],value=F)
+    test5<-grep(paste(test[5],input$n,sep="_"),demand[,1],value=F)
+    test6<-grep(paste(test[6],input$n,sep="_"),demand[,1],value=F)
+    test7<-grep(paste(test[7],input$n,sep="_"),demand[,1],value=F)
+    test8<-grep(paste(test[8],input$n,sep="_"),demand[,1],value=F)
+    test9<-grep(paste(test[9],input$n,sep="_"),demand[,1],value=F)
+    test10<-grep(paste(test[10],input$n,sep="_"),demand[,1],value=F)
+    h<-grep(paste(input$choose,input$n,sep="_"),demand[,1],value=F)
+    te<-c(h,test1,test2,test3,test4,test5,test6,test7,test8,test9,test10)
+    hist(demand[,45],breaks=20,probability = T)
+    abline(v=demand[h,45],col="blue",lty="dotted",lwd=2)
+    text(demand[h,45],-0.001,demand[h,1],col="blue")
+  })
+  
+  output$hist5<-renderPlot({
+    test<-c(input$choose2)
+    test1<-grep(paste(test[1],input$n,sep="_"),demand[,1],value=F)
+    test2<-grep(paste(test[2],input$n,sep="_"),demand[,1],value=F)
+    test3<-grep(paste(test[3],input$n,sep="_"),demand[,1],value=F)
+    test4<-grep(paste(test[4],input$n,sep="_"),demand[,1],value=F)
+    test5<-grep(paste(test[5],input$n,sep="_"),demand[,1],value=F)
+    test6<-grep(paste(test[6],input$n,sep="_"),demand[,1],value=F)
+    test7<-grep(paste(test[7],input$n,sep="_"),demand[,1],value=F)
+    test8<-grep(paste(test[8],input$n,sep="_"),demand[,1],value=F)
+    test9<-grep(paste(test[9],input$n,sep="_"),demand[,1],value=F)
+    test10<-grep(paste(test[10],input$n,sep="_"),demand[,1],value=F)
+    h<-grep(paste(input$choose,input$n,sep="_"),demand[,1],value=F)
+    te<-c(h,test1,test2,test3,test4,test5,test6,test7,test8,test9,test10)
+    hist(demand[,43],breaks=20,probability = T)
+    abline(v=demand[h,43],col="blue",lty="dotted",lwd=2)
+    text(demand[h,43],-0.001,demand[h,1],col="blue")
+  })
+              
+########################################################################################   Table   #################################################
+              
+    
+    output$table <- renderDataTable({
+      demand
+    })
+#########################################################################################   TRI   ##############################################   
+    
+
+######################################################################################## onglet TRI ############## 
+   output$barplot2<-renderPlot({
+##########################################################     
+    if (which(colnames(varcatego)==input$variables2)<8){
+      
+      lower<-moyenne[trivar[1,input$tripar]:trivar[2,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]]-1.96*et[trivar[1,input$tripar]:trivar[1,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]] #construit les ci
+      upper<-moyenne[trivar[1,input$tripar]:trivar[2,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]]+1.96*et[trivar[1,input$tripar]:trivar[1,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+      
+      barplot2(data.matrix(t(moyenne[trivar[1,input$tripar]:trivar[2,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]])),
+               beside=T,
+               legend.text=T,
+               plot.ci=T,
+               ci.l = t(lower),
+               ci.u = t(upper),
+               ci.lty = 2,
+               ci.color = "Blue")
+      
+    }
+##########################################################     
+     else if ((which(colnames(varcatego)==input$variables2)>7)&&(which(colnames(varcatego)==input$variables2)<10))
+##########################################################
+       {
+
+      barplot2(data.matrix(t(princome2[trivar[1,input$tripar]:trivar[2,input$tripar],1:2])),beside=T,legend.text=T)
+      lines(moyenne[,3]*2000,col="blue")
+      legend(length(trivar[1,input$tripar]:trivar[2,input$tripar])*2+1,100000,c("Price/Income ratio"),lty=c(1,1))
+      
+    }else{
+      if (input$tripar=="gamme"){
+        
+        gm<-list()
+        moyenne<-NULL
+        z<-1
+        for(i in gamme){
+          p<-grep(pattern=i,x=demand[,1],value=FALSE)
+          gm[[i]]<-demand[p,varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+          row.names(gm[[i]])<-demand[p,1]
+          lastmodel[[i]]<-length(row.names(gm[[i]]))
+          gm[[i]][length(lastmodel[[i]])+1,]<-colMeans(gm[[i]],na.rm=TRUE) #rajouter l'écart type
+          row.names(gm[[i]])[lastmodel[[i]]]<-paste("Moyenne",i)
+          moyenne<-rbind(moyenne,gm[[i]][length(row.names(gm[[i]])),])
+          z<-z+1
+        }
+        par(mfrow=c(1,3))
+        row.names(moyenne)<-1:length(row.names(moyenne))
+        
+        moyenne<-(moyenne[,order(moyenne[1,],decreasing = T,na.last = T)])
+        moyenne1<-moyenne[,which(!is.na(moyenne[1,]))]
+        dotchart(data.matrix(moyenne1[1,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for Base"),
+                 xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[2,],decreasing = T,na.last = T)])
+        moyenne2<-moyenne[,which(!is.na(moyenne[2,]))]
+        dotchart(data.matrix(moyenne2[2,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for UpperMs"
+                 ), xlab="% of the buyers who liked the feature")
+        moyenne<-(moyenne[,order(moyenne[3,],decreasing = T,na.last = T)])
+        moyenne3<-moyenne[,which(!is.na(moyenne[3,]))]
+        dotchart(data.matrix(moyenne3[3,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for Premium"),
+                 xlab="% of the buyers who liked the feature")
+        
+        
+      }
+      if (input$tripar=="dates"){
+        
+        gm<-list()
+        moyenne<-NULL
+        z<-1
+        for(i in dates){
+          p<-grep(pattern=i,x=demand[,1],value=FALSE)
+          gm[[i]]<-demand[p,varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+          row.names(gm[[i]])<-demand[p,1]
+          lastmodel[[i]]<-length(row.names(gm[[i]]))
+          gm[[i]][length(lastmodel[[i]])+1,]<-colMeans(gm[[i]],na.rm=TRUE) #rajouter l'écart type
+          row.names(gm[[i]])[lastmodel[[i]]]<-paste("Moyenne",i)
+          moyenne<-rbind(moyenne,gm[[i]][length(row.names(gm[[i]])),])
+          z<-z+1
+        }
+        par(mfrow=c(1,5))
+        row.names(moyenne)<-1:length(row.names(moyenne))
+        
+        moyenne<-(moyenne[,order(moyenne[1,],decreasing = T,na.last = T)])
+        moyenne1<-moyenne[,which(!is.na(moyenne[1,]))]
+        dotchart(data.matrix(moyenne1[1,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for 2010"), xlab="% of the buyers who liked the feature"
+        )
+        moyenne<-(moyenne[,order(moyenne[2,],decreasing = T,na.last = T)])
+        moyenne2<-moyenne[,which(!is.na(moyenne[2,]))]
+        dotchart(data.matrix(moyenne2[2,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for 2011"),
+                 xlab="% of the buyers who liked the feature"
+        )
+        moyenne<-(moyenne[,order(moyenne[3,],decreasing = T,na.last = T)])
+        moyenne3<-moyenne[,which(!is.na(moyenne[3,]))]
+        dotchart(data.matrix(moyenne3[3,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for 2012"), xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[4,],decreasing = T,na.last = T)])
+        moyenne4<-moyenne[,which(!is.na(moyenne[4,]))]
+        dotchart(data.matrix(moyenne4[4,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for 2013 "),
+                 xlab="% of the buyers who liked the feature"
+        )
+        moyenne<-(moyenne[,order(moyenne[5,],decreasing = T,na.last = T)])
+        moyenne5<-moyenne[,which(!is.na(moyenne[5,]))]
+        dotchart(data.matrix(moyenne5[5,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for 2014 "),
+                 xlab="% of the buyers who liked the feature"
+        )
+      }
+      if (input$tripar=="BCDE"){
+        
+        gm<-list()
+        moyenne<-NULL
+        z<-1
+        for(i in BCDE){
+          p<-grep(pattern=i,x=demand[,1],value=FALSE)
+          gm[[i]]<-demand[p,varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+          row.names(gm[[i]])<-demand[p,1]
+          lastmodel[[i]]<-length(row.names(gm[[i]]))
+          gm[[i]][length(lastmodel[[i]])+1,]<-colMeans(gm[[i]],na.rm=TRUE) #rajouter l'écart type
+          row.names(gm[[i]])[lastmodel[[i]]]<-paste("Moyenne",i)
+          moyenne<-rbind(moyenne,gm[[i]][length(row.names(gm[[i]])),])
+          z<-z+1
+        }
+        par(mfrow=c(1,4))
+        row.names(moyenne)<-1:length(row.names(moyenne))
+        
+        moyenne<-(moyenne[,order(moyenne[1,],decreasing = T,na.last = T)])
+        moyenne1<-moyenne[,which(!is.na(moyenne[1,]))]
+        dotchart(data.matrix(moyenne1[1,1:input$calibrate]),labels = NULL,
+                 col="blue",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for B"),
+                 xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[2,],decreasing = T,na.last = T)])
+        moyenne2<-moyenne[,which(!is.na(moyenne[2,]))]
+        dotchart(data.matrix(moyenne2[2,1:input$calibrate]),labels = NULL,
+                 col="blue",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for C"),
+                 xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[3,],decreasing = T,na.last = T)])
+        moyenne3<-moyenne[,which(!is.na(moyenne[3,]))]
+        dotchart(data.matrix(moyenne3[3,1:input$calibrate]),labels = NULL,
+                 col="blue",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for D"),
+                 xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[4,],decreasing = T,na.last = T)])
+        moyenne4<-moyenne[,which(!is.na(moyenne[4,]))]
+        dotchart(data.matrix(moyenne4[4,1:input$calibrate]),labels = NULL,
+                 col="blue",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for E"),
+                 xlab="% of the buyers who liked the feature"
+        )
+      }
+      if (input$tripar=="bodytype"){
+        
+        gm<-list()
+        moyenne<-NULL
+        z<-1
+        for(i in bodytype){
+          p<-grep(pattern=i,x=demand[,1],value=FALSE)
+          gm[[i]]<-demand[p,varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+          row.names(gm[[i]])<-demand[p,1]
+          lastmodel[[i]]<-length(row.names(gm[[i]]))
+          gm[[i]][length(lastmodel[[i]])+1,]<-colMeans(gm[[i]],na.rm=TRUE) #rajouter l'écart type
+          row.names(gm[[i]])[lastmodel[[i]]]<-paste("Moyenne",i)
+          moyenne<-rbind(moyenne,gm[[i]][length(row.names(gm[[i]])),])
+          z<-z+1
+        }
+        par(mfrow=c(1,4))
+        row.names(moyenne)<-1:length(row.names(moyenne))
+        
+        moyenne<-(moyenne[,order(moyenne[1,],decreasing = T,na.last = T)])
+        moyenne1<-moyenne[,which(!is.na(moyenne[1,]))]
+        dotchart(data.matrix(moyenne1[1,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for Hatchback"),
+                 xlab="% of the buyers who liked the feature"
+        )
+        moyenne<-(moyenne[,order(moyenne[2,],decreasing = T,na.last = T)])
+        moyenne2<-moyenne[,which(!is.na(moyenne[2,]))]
+        dotchart(data.matrix(moyenne2[2,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for Sedan"),
+                 xlab="% of the buyers who liked the feature"
+        )
+        moyenne<-(moyenne[,order(moyenne[3,],decreasing = T,na.last = T)])
+        moyenne3<-moyenne[,which(!is.na(moyenne[3,]))]
+        dotchart(data.matrix(moyenne3[3,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for MPV"),
+                 xlab="% of the buyers who liked the feature")
+        
+        moyenne<-(moyenne[,order(moyenne[4,],decreasing = T,na.last = T)])
+        moyenne4<-moyenne[,which(!is.na(moyenne[4,]))]
+        dotchart(data.matrix(moyenne4[4,1:input$calibrate]),labels = NULL,
+                 col="red",#rainbow(length(colnames(w[,which(!is.na(w[1,]))]))),
+                 pch=16,
+                 main = paste(input$variables2,"Top Features for Off road "),
+                 xlab="% of the buyers who liked the feature"
+        )
+        
+        
+      }
+      
+    }
+  })
+  ###########################################################################  add data table ############################
+  
+  output$tritable<-renderTable({
+  if(input$viewtable==T){
+    if (which(colnames(varcatego)==input$variables2)<8){
+      moyenne[trivar[1,input$tripar]:trivar[2,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]]
+    }
+    else if ((which(colnames(varcatego)==input$variables2)>7)&&(which(colnames(varcatego)==input$variables2)<10)){
+      princome2[trivar[1,input$tripar]:trivar[2,input$tripar],1:2]
+    }
+    else if(which(colnames(varcatego)==input$variables2)==10){
+      t(tablereason[trivar[1,input$tripar]:trivar[2,input$tripar],1:input$calibrate])
+    }
+    else if(which(colnames(varcatego)==input$variables2)==11){
+      t(tablelikes[trivar[1,input$tripar]:trivar[2,input$tripar],1:input$calibrate])
+    }
+    else if(which(colnames(varcatego)==input$variables2)==12){
+      t(tabledislikes[trivar[1,input$tripar]:trivar[2,input$tripar],1:input$calibrate])
+  }
+    }
+  })
+############################################################################### add econd type of chart  #################
+    output$addpie1<-renderPlot({
+      if(input$optpie==T){
+        if (which(colnames(varcatego)==input$variables2)<8){
+          par(mfrow=c(1,2))
+          
+          pie3D(data.matrix(t(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar],varcatego[1,input$variables2]:varcatego[2,input$variables2]])),
+                labels = colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+                main=row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]])
+          
+          legend("topright",legend=colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+                 fill=rainbow(length(colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]))))
+          pie3D(data.matrix(t(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+1,varcatego[1,input$variables2]:varcatego[2,input$variables2]])),
+                labels = colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+                main=row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+1])
+          
+          legend("topright",legend=colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+                 fill=rainbow(length(colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]))))
+        }
+       ############################################### Income
+        else if ((which(colnames(varcatego)==input$variables2))==8){
+          par(mfrow=c(1,2))
+#########################################################################################          
+          hist(demand[,43],col="grey",breaks=20,prob=T,xlab=colnames(demand)[42],main=paste("histogram of the income estimated for buyers of",input$tripar))
+          lines(density(demand[,43]),lty=3,col="blue",lwd=2)
+          
+          z<-0
+          for (i in trivar[1,input$tripar]:trivar[2,input$tripar]){
+            abline(v=moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,43],col="red",lwd=2)
+            text(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,43]+120 , 0.0001-(0.00001*z) , row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+z])
+            z<-z+1
+          }
+#----------------------------------------------------------------------------------------------------------      
+          hist(demand[,45],breaks=20,prob=T,col="grey",xlab=colnames(demand)[44],main=paste("histogram of Price by",input$tripar))
+          lines(density(demand[,45]),lty=3,col="blue",lwd=2)
+          z<-0
+          for (i in trivar[1,input$tripar]:trivar[2,input$tripar]){
+            abline(v=moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,45],col="red",lwd=2)
+            text(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,45] , 0.0043-(0.0002*z) , row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+z],col="black")
+            z<-z+1
+        }
+        ######################################## Price
+        }else if ((which(colnames(varcatego)==input$variables2))==9){
+          
+          par(mfrow=c(1,2))
+          #########################################################################################          
+          hist(demand[,43],col="grey",breaks=20,prob=T,xlab=colnames(demand)[42],main=paste("histogram of the income estimated for buyers of",input$tripar))
+          lines(density(demand[,43]),lty=3,col="blue",lwd=2)
+          
+          z<-0
+          for (i in trivar[1,input$tripar]:trivar[2,input$tripar]){
+            abline(v=moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,43],col="red",lwd=2)
+            text(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,43]+120 , 0.0001-(0.00001*z) , row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+z])
+            z<-z+1
+          }
+          #----------------------------------------------------------------------------------------------------------      
+          hist(demand[,45],breaks=20,prob=T,col="grey",xlab=colnames(demand)[44],main=paste("histogram of Price by",input$tripar))
+          lines(density(demand[,45]),lty=3,col="blue",lwd=2)
+          z<-0
+          for (i in trivar[1,input$tripar]:trivar[2,input$tripar]){
+            abline(v=moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,45],col="red",lwd=2)
+            text(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+z,45] , 0.0043-(0.0002*z) , row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+z],col="black")
+            z<-z+1
+          }
+        
+        }
+        else{}
+      }
+  })
+  output$addpie2<-renderPlot({
+    if(input$optpie==T){
+      if (which(colnames(varcatego)==input$variables2)<8){
+        par(mfrow=c(1,2))
+        
+        pie3D(data.matrix(t(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+2,varcatego[1,input$variables2]:varcatego[2,input$variables2]])),
+              labels = colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+              main=row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+2])
+        
+        legend("topright",legend=colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+               fill=rainbow(length(colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]))))
+        
+        pie3D(data.matrix(t(moyenne[trivar[1,input$tripar]:trivar[1,input$tripar]+3,varcatego[1,input$variables2]:varcatego[2,input$variables2]])),
+              labels = colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+              main=row.names(moyenne)[trivar[1,input$tripar]:trivar[1,input$tripar]+3])
+        
+        legend("topright",legend=colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]),
+               fill=rainbow(length(colnames(moyenne[,varcatego[1,input$variables2]:varcatego[2,input$variables2]]))))
+      }
+      else if ((which(colnames(varcatego)==input$variables2)>7)&&(which(colnames(varcatego)==input$variables2)<10)){}
+      else{}
+      
+    }
+  })
+  output$cp<-renderPlot({
+    if (input$y=="bodytype"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(bodytype~.,data = v,minsplit=7)    
+      plotcp(Arbre,minline = TRUE,col=2,lty=2)
+      
+    }else if(input$y=="range"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(range~.,data = v,minsplit=7)    
+      plotcp(Arbre,minline = TRUE,col=2,lty=2)
+    }else{
+      v<-dfinal[,input$var]
+      Arbre<-rpart(BCDE~.,data = v,minsplit=7)    
+      plotcp(Arbre,minline = TRUE,col=2,lty=2)
+    }
+  })
+
+  output$tree<-renderPlot({
+    if (input$y=="bodytype"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(bodytype~.,data = v,minsplit=7) 
+      Arbre1<-prune(Arbre,cp=input$size)
+      rpart.plot(Arbre1,type=input$type,extra=1,fallen.leaves = T,branch = 0)
+      
+      if(input$radio=="No Extra"){
+        prp(Arbre1, extra = 0, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 1,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }else{
+        prp(Arbre1, extra = 1, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 0,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }
+    }else if (input$y=="range"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(range~.,data = v,minsplit=7) 
+      Arbre1<-prune(Arbre,cp=input$size)
+      rpart.plot(Arbre1,type=input$type,extra=1,fallen.leaves = T,branch = 0)
+      
+      if(input$radio=="No Extra"){
+        prp(Arbre1, extra = 0, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 1,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }else{
+        prp(Arbre1, extra = 1, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 0,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }
+    }else{
+      v<-dfinal[,input$var]
+      Arbre<-rpart(BCDE~.,data = v,minsplit=7) 
+      Arbre1<-prune(Arbre,cp=input$size)
+      rpart.plot(Arbre1,type=input$type,extra=1,fallen.leaves = T,branch = 0)
+      
+      if(input$radio=="No Extra"){
+        prp(Arbre1, extra = 0, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 1,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }else{
+        prp(Arbre1, extra = 1, faclen=0, nn = T,fallen.leaves = T,type = input$type,branch = 0,
+            box.col=c("green", "orange", "red","lightblue")[findInterval(Arbre1$frame$yval, v = c(1,2,3,4))])
+      }
+    }
+  })
+  output$erreur<-renderTable({
+    if (input$y=="bodytype"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(bodytype~.,data = v,cp=input$size) 
+      cbind(table(predict(Arbre,newdata=v,type="class"),v$bodytype),c("Classification error rate",round(sum(predict(Arbre,newdata=v,type="class")!=v$bodytype)/nrow(v),digits=3),"",""))
+    }else if(input$y=="range"){
+      v<-dfinal[,input$var]
+      Arbre<-rpart(range~.,data = v,cp=input$size) 
+      cbind(table(predict(Arbre,newdata=v,type="class"),v$range),c("Classification error rate",round(sum(predict(Arbre,newdata=v,type="class")!=v$range)/nrow(v),digits=3),"",""))
+      
+    }else{
+      v<-dfinal[,input$var]
+      Arbre<-rpart(BCDE~.,data = v,cp=input$size) 
+      cbind(table(predict(Arbre,newdata=v,type="class"),v$BCDE),c("Classification error rate",round(sum(predict(Arbre,newdata=v,type="class")!=v$BCDE)/nrow(v),digits=3),"",""))
+    }
+  })
+  output$natural<-renderPlot({
+    if (input$image==TRUE){
+      if (input$y=="bodytype"){  
+        varImpPlot(body.rf, type=2, n.var=17, scale=FALSE, main="Variable Importance (Gini) for bodytype",col="blue",pch=16)
+      }else if(input$y=="range"){
+        varImpPlot(range.rf, type=2, n.var=17, scale=FALSE, main="Variable Importance (Gini) for range",col="blue",pch=16)
+      }else{
+        nat.BCDE<-varImpPlot(BCDE.rf, type=2, n.var=17, scale=FALSE, main="Variable Importance (Gini) for BCDE",col="blue",pch=16)
+      }
+    }
+  })
+  ######       ---------------------------------                 CORRELATIONS
+  output$his<-renderPlot({
+    dfinal1<-dfinal[,-c(1:3)]
+    dfin<-dfinal1[,input$vars]
+    cor<-cor(dfin)
+    corrplot(corr= cor,method=input$method2)
+})
+
+  
+  output$plot<-renderPlot({
+    dfinal<-dfinal[,-c(1:3)]
+    dfin<-dfinal[,input$vars]
+    plot(dfin)
+    abline(lowess(dfin[,1:2]))
+    
+  })
+  output$plot2<-renderPlot({
+    dfinal<-dfinal[,-c(1:3)]
+    dfin<-dfinal[,input$vars]
+    hist(dfin[,1],breaks=input$slider,probability = T,main=paste("histogram of ",colnames(dfin)[1]))
+    lines(density(dfin[,1]),lty="dotted",col="green")
+    
+  })
+}
+shinyApp(ui=ui,server=server)
